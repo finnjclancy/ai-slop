@@ -22,8 +22,8 @@ jobs:
         
         # Get diff using GitHub API
         DIFF=$(curl -s -H "Authorization: token ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER" | \
-          jq -r '.body // "No description"')
+          -H "Accept: application/vnd.github.diff" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER")
         
         # Create JSON payload
         cat << EOF > pr_data.json
