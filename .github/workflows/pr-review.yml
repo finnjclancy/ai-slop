@@ -45,40 +45,50 @@ jobs:
     - name: Call AI Review API
       id: ai-review
       run: |
-        # Debug: Show the JSON file content
+        set -e  # Exit on any error
+        
+        echo "=== Environment Check ==="
+        echo "LOCAL_SERVER_URL: ${{ secrets.LOCAL_SERVER_URL }}"
+        echo "PR Number: ${{ github.event.pull_request.number }}"
+        echo "Repository: ${{ github.repository }}"
+        
         echo "=== PR Data JSON ==="
-        cat pr_data.json
+        cat pr_data.json || echo "ERROR: Could not read pr_data.json"
         echo "===================="
         
-        # Call our local API
-        RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+        echo "=== Testing API endpoint ==="
+        curl -f -s -H "ngrok-skip-browser-warning: true" "${{ secrets.LOCAL_SERVER_URL }}/health" || echo "ERROR: Health check failed"
+        
+        echo "=== Calling AI Review API ==="
+        if curl -f -s -X POST \
           -H "Content-Type: application/json" \
           -H "ngrok-skip-browser-warning: true" \
           -H "User-Agent: GitHub-Actions" \
           -d @pr_data.json \
-          "${{ secrets.LOCAL_SERVER_URL }}/review")
-        
-        echo "=== API Response ==="
-        echo "$RESPONSE"
-        echo "===================="
-        
-        # Extract HTTP code and body
-        HTTP_CODE="${RESPONSE: -3}"
-        BODY="${RESPONSE%???}"
-        
-        echo "HTTP Code: $HTTP_CODE"
-        echo "Response Body: $BODY"
-        
-        # Extract decision
-        DECISION=$(echo "$BODY" | jq -r '.decision // "unknown"')
-        REASON=$(echo "$BODY" | jq -r '.reason // "unknown"')
-        
-        echo "AI Decision: $DECISION"
-        echo "AI Reason: $REASON"
-        
-        # Set output variables
-        echo "decision=$DECISION" >> $GITHUB_OUTPUT
-        echo "reason=$REASON" >> $GITHUB_OUTPUT
+          -o response.json \
+          "${{ secrets.LOCAL_SERVER_URL }}/review"; then
+          
+          echo "✅ API call successful"
+          echo "=== API Response ==="
+          cat response.json
+          echo "===================="
+          
+          # Extract decision
+          DECISION=$(jq -r '.decision // "unknown"' response.json)
+          REASON=$(jq -r '.reason // "unknown"' response.json)
+          
+          echo "AI Decision: $DECISION"
+          echo "AI Reason: $REASON"
+          
+          # Set output variables
+          echo "decision=$DECISION" >> $GITHUB_OUTPUT
+          echo "reason=$REASON" >> $GITHUB_OUTPUT
+        else
+          echo "❌ API call failed"
+          echo "decision=error" >> $GITHUB_OUTPUT
+          echo "reason=API call failed" >> $GITHUB_OUTPUT
+          exit 1
+        fi
         
     - name: Approve PR
       if: steps.ai-review.outputs.decision == 'approve'
