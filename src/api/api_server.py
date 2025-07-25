@@ -5,8 +5,8 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import openai
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from root directory
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 app = Flask(__name__)
 
