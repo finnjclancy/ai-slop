@@ -25,33 +25,53 @@ jobs:
           -H "Accept: application/vnd.github.diff" \
           "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER")
         
-        # Create JSON payload
-        cat << EOF > pr_data.json
-        {
-          "title": "$PR_TITLE",
-          "body": "$PR_BODY",
-          "diff": "$DIFF",
-          "number": $PR_NUMBER,
-          "repository": "${{ github.repository }}"
-        }
-        EOF
+        # Create JSON payload (escape quotes and newlines properly)
+        jq -n \
+          --arg title "$PR_TITLE" \
+          --arg body "$PR_BODY" \
+          --arg diff "$DIFF" \
+          --argjson number $PR_NUMBER \
+          --arg repository "${{ github.repository }}" \
+          '{
+            title: $title,
+            body: $body,
+            diff: $diff,
+            number: $number,
+            repository: $repository
+          }' > pr_data.json
         
         echo "PR data extracted"
         
     - name: Call AI Review API
       id: ai-review
       run: |
+        # Debug: Show the JSON file content
+        echo "=== PR Data JSON ==="
+        cat pr_data.json
+        echo "===================="
+        
         # Call our local API
-        RESPONSE=$(curl -s -X POST \
+        RESPONSE=$(curl -s -w "%{http_code}" -X POST \
           -H "Content-Type: application/json" \
           -H "ngrok-skip-browser-warning: true" \
           -H "User-Agent: GitHub-Actions" \
           -d @pr_data.json \
           "${{ secrets.LOCAL_SERVER_URL }}/review")
         
+        echo "=== API Response ==="
+        echo "$RESPONSE"
+        echo "===================="
+        
+        # Extract HTTP code and body
+        HTTP_CODE="${RESPONSE: -3}"
+        BODY="${RESPONSE%???}"
+        
+        echo "HTTP Code: $HTTP_CODE"
+        echo "Response Body: $BODY"
+        
         # Extract decision
-        DECISION=$(echo $RESPONSE | jq -r '.decision')
-        REASON=$(echo $RESPONSE | jq -r '.reason')
+        DECISION=$(echo "$BODY" | jq -r '.decision // "unknown"')
+        REASON=$(echo "$BODY" | jq -r '.reason // "unknown"')
         
         echo "AI Decision: $DECISION"
         echo "AI Reason: $REASON"
