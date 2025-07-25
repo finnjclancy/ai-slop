@@ -1,0 +1,83 @@
+name: AI PR Reviewer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review-pr:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Extract PR data
+      id: pr-data
+      run: |
+        # Get PR details
+        PR_TITLE="${{ github.event.pull_request.title }}"
+        PR_BODY="${{ github.event.pull_request.body }}"
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        
+        # Get diff using GitHub API
+        DIFF=$(curl -s -H "Authorization: token ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER" | \
+          jq -r '.body // "No description"')
+        
+        # Create JSON payload
+        cat << EOF > pr_data.json
+        {
+          "title": "$PR_TITLE",
+          "body": "$PR_BODY",
+          "diff": "$DIFF",
+          "number": $PR_NUMBER,
+          "repository": "${{ github.repository }}"
+        }
+        EOF
+        
+        echo "PR data extracted"
+        
+    - name: Call AI Review API
+      id: ai-review
+      run: |
+        # Call our local API
+        RESPONSE=$(curl -s -X POST \
+          -H "Content-Type: application/json" \
+          -d @pr_data.json \
+          "${{ secrets.LOCAL_SERVER_URL }}/review")
+        
+        # Extract decision
+        DECISION=$(echo $RESPONSE | jq -r '.decision')
+        REASON=$(echo $RESPONSE | jq -r '.reason')
+        
+        echo "AI Decision: $DECISION"
+        echo "AI Reason: $REASON"
+        
+        # Set output variables
+        echo "decision=$DECISION" >> $GITHUB_OUTPUT
+        echo "reason=$REASON" >> $GITHUB_OUTPUT
+        
+    - name: Approve PR
+      if: steps.ai-review.outputs.decision == 'approve'
+      run: |
+        curl -X POST \
+          -H "Authorization: token ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+          -d '{
+            "event": "APPROVE",
+            "body": "🤖 AI Review: ${{ steps.ai-review.outputs.reason }}"
+          }'
+          
+    - name: Request Changes
+      if: steps.ai-review.outputs.decision == 'reject'
+      run: |
+        curl -X POST \
+          -H "Authorization: token ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+          -d '{
+            "event": "REQUEST_CHANGES",
+            "body": "🤖 AI Review: ${{ steps.ai-review.outputs.reason }}"
+          }' 
