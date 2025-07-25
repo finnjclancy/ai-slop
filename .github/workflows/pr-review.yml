@@ -44,6 +44,8 @@ jobs:
         # Call our local API
         RESPONSE=$(curl -s -X POST \
           -H "Content-Type: application/json" \
+          -H "ngrok-skip-browser-warning: true" \
+          -H "User-Agent: GitHub-Actions" \
           -d @pr_data.json \
           "${{ secrets.LOCAL_SERVER_URL }}/review")
         
